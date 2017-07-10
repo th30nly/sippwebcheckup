@@ -1,6 +1,6 @@
 <?php
 	/*
-	A simple php function to check url of sipp web on the fly and realtime.
+	A simple php class to check url of sipp web on the fly and realtime.
 	with a simple content validation too.
 	init dev by Zeno Dani Kuncoro a.k.a th30nly
 	pengadilan tinggi bengkulu
