@@ -1,14 +1,14 @@
 <?php
 	/*
-	A simple php class to check url of sipp web on the fly and realtime.
+	A simple php function to check url of sipp web on the fly and realtime.
 	with a simple content validation too.
 	init dev by Zeno Dani Kuncoro a.k.a th30nly
-	pengadilan tinggi bengkulu
+	Pengadilan Tinggi Bengkulu
 	this code is freely distributed and used by anyone in this universe as is but please consider the credits :)
 	you can expand this functionality and include it into your project also, but remember to share it to anyone.
 	because knowledges belongs to world
 	init build  : Jul 22nd 2016
-	last update : Jul 10th 2017
+	last update : Jul 29 2018
 	*/
 
 	
@@ -32,6 +32,8 @@
 			curl_setopt($ch, CURLOPT_HEADER, false);
 			curl_setopt($ch, CURLOPT_NOBODY, false);
 			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30); 
+			curl_setopt($ch, CURLOPT_TIMEOUT, 30); //timeout in seconds
 			//curl_setopt($ch, CURLOPT_COOKIEJAR, $cookie_file_path);
 			//curl_setopt($ch, CURLOPT_COOKIEFILE, $cookie_file_path);
 			curl_setopt($ch, CURLOPT_COOKIE, "cookiename=0");
@@ -56,8 +58,15 @@
 				curl_setopt($ch, CURLOPT_POSTFIELDS, $postinfo);
 				//var_dump(curl_exec($ch));
 			}
-			$html = @curl_exec($ch);
+			$html 		= @curl_exec($ch);
+			$http_code 	= curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        	$http_err 	= curl_error($ch);
+
 			curl_close($ch);
+			
+			if($http_code != 200){
+				return false;
+			}
 			
 			// cleaning cookies
 			//if(file_exists($cookie_file_path)){
@@ -80,9 +89,9 @@
 		// actually this is a write file function :D
 		private function writecache($cachefile, $content){
 			if ( $content != "" ){
-				$f = fopen("$cachefile","w");
-				fwrite($f, $content);
-				fclose($f);
+				$f = @fopen("$cachefile","w");
+				@fwrite($f, $content);
+				@fclose($f);
 			}		
 		}
 		// validate cache expired by passing cache file name $fname and cache time $cachetime as function parameter
@@ -104,7 +113,9 @@
 				$this->writecache($cachefile,$res);
 				return $res;
 			}else{
-				if(file_exists($cachefile)){
+				if($res === false){
+					return false;
+				}elseif(file_exists($cachefile)){
 					return $this->readcache($cachefile);
 				}else{
 					return '';
@@ -121,7 +132,9 @@
 				$this->writecache($cachefile,$res);
 				return $res;
 			}else{
-				if(file_exists($cachefile)){
+				if($res === false){
+					return false;
+				}elseif(file_exists($cachefile)){
 					return $this->readcache($cachefile);
 				}else{
 					return '';
@@ -140,13 +153,16 @@
 				$domain['host'] = str_replace($needle, '', $url);
 			}
 			// end zeno edit
-			$cachefile = './cache/.'.$domain['host'].'.htaccess';
+			$cachefile = dirname(__FILE__).'/cache/.'.$domain['host'].'.htaccess';
 			if (empty($postinfo)){
 				$res = $this->GETdata($cachefile,$cachetime,$url);
 			}else{
 				$res = $this->POSTdata($cachefile,$cachetime,$url);
 			}
-			if( empty($res) ){
+			
+			if(!$res){
+				return false;
+			}elseif( empty($res) ){
 				return false;
 			}else{
 				return $res;
@@ -168,21 +184,20 @@
 			return $total;
 		}
 		
-		// function to get last content update date (Pembaharuan data)
+		// function to get total perkara sipp web
 		// will return false if fail
-		// added on July 10th 2017
 		private function getPembaharuan($content){
 			$pembaharuan = false;
 			$content = trim(preg_replace('/\s+/', ' ', $content));
 			//var_dump($content);die();
-			if(preg_match('/<div class="total_perkara">[\w\s]*Pembaharuan Data : ([\w]*), ([\d]{1,2}) ([\w]{3})\. ([\d]{4}) ([\d\:]*) ([\w]{3}), Total : ([0-9\.]*)[\s]*[\w\s]*<\/div>/i', $content, $pembaharuan)){
+			if(preg_match('/<div class="total_perkara">[\w\s]*Pembaharuan Data : ([\w]*), ([\d]{1,2}) ([\w]{3})[\.\ ]*([\d]{4}) ([\d\:]*) ([\w]{3})[\ \r\n,].*Total : ([0-9\.]*)[\s]*[\w\s]*<\/div>/i', $content, $pembaharuan)){
 				$hari = $pembaharuan[1];
 				$tanggal = $pembaharuan[2];
 				$bulan = $pembaharuan[3];
 				$tahun = $pembaharuan[4];
 				$jam = $pembaharuan[5];
 				$zona = $pembaharuan[6];
-				$pembaharuan = $hari.", ".$tanggal." ".$bulan." ".$tahun." ".$jam." ".$zona;
+				$pembaharuan = $tanggal." ".$bulan." ".$tahun." ".$jam." ".$zona;
 			}else{
 				$pembaharuan = false;
 			}
@@ -193,14 +208,33 @@
 		// will return false if fail
 		private function getWebVersion($content){
 			$version = false;
-			if(preg_match('/.*>version ([a-z0-9\.\-]*)<.*/i', $content, $version)){
+			if(preg_match('/.*<label>([a-z0-9\.\-]*)<\/label>.*/i', $content, $version)){
 				$version = $version[1];
 			}
 			if(empty($version)){
-				if(preg_match('/.*>versi ([a-z0-9\.\-]*)<.*/i', $content, $version)){
+				if(preg_match('/.*<label>([a-z0-9\.\-]*)<\/label>.*/i', $content, $version)){
 					$version = $version[1];
 				}
 			}
+			return $version;
+		}
+
+		// function to get version of sipp lokal
+		// will return false if fail
+		private function getLokalVersion($content){
+			$version = false;
+
+			if(preg_match('/.*>sipp lokal versi ([a-z0-9\.\-]*)<.*/i', $content, $version)){
+				$version = $version[1];
+			}
+
+			if(empty($version)){
+				if(preg_match('/.*>sipp lokal versi ([a-z0-9\.\-]*)<.*/i', $content, $version)){
+					$version = $version[1];
+
+				}
+			}
+
 			return $version;
 		}
 	
@@ -244,6 +278,16 @@
 			}
 			return $hacked;
 		}
+		
+		// function to get suspended
+		// will return false if fail
+		private function isSuspended($content){
+			$suspend = false;
+			if(preg_match('/.*suspend.*/i', $content)){
+				$suspend = true;
+			}
+			return $suspend;
+		}
 	
 		// function to get database error on sipp web
 		// will return false if fail
@@ -283,16 +327,37 @@
 			$content = $this->getPage($url);
 			$total = $this->getTotalPerkara($content);
 			$version = $this->getWebVersion($content);
+			$versionlokal = $this->getLokalVersion($content);
 			$updatetime = $this->getPembaharuan($content);
 			$php = $this->isPHPError($content);
 			$setup = $this->isCompleteSetting($content);
-			
+			$suspend = $this->isSuspended($content);
 			$retval['uri'] = $url;
 			
+			if($content===false){
+				$retval['total'] = '<p style="color:red;">ERROR SIPP</p>';
+				$retval['version'] = '<p style="color:red;">ERROR SIPP</p>';
+				$retval['versionlokal'] = '<p style="color:red;">ERROR SIPP</p>';
+				$retval['updatetime'] = '<p style="color:red;">ERROR SIPP</p>';
+				$retval['valid'] = '<p style="color:red;">ERROR SIPP</p>';
+				return $retval;
+			}
+
 			if(empty($content)){
 				$retval['total'] = '<p style="color:red;">NO DATA</p>';
 				$retval['version'] = '<p style="color:red;">NO DATA</p>';
+				$retval['versionlokal'] = '<p style="color:red;">NO DATA</p>';
+				$retval['updatetime'] = '<p style="color:red;">NO DATA</p>';
 				$retval['valid'] = '<p style="color:red;">INVALID SIPP</p>';
+				return $retval;
+			}
+			
+			if($suspend){
+				$retval['total'] = '<p style="color:red;">Hosting Suspended</p>';
+				$retval['version'] = '<p style="color:red;">Hosting Suspended</p>';
+				$retval['versionlokal'] = '<p style="color:red;">Hosting Suspended</p>';
+				$retval['valid'] = '<p style="color:red;">Hosting Suspended</p>';
+				$retval['updatetime'] = '<p style="color:red;">Hosting Suspended</p>';
 				return $retval;
 			}
 			
@@ -307,6 +372,12 @@
 			}else{
 				$retval['version'] = '<p style="color:red;">ERR VERSION</p>';
 			}
+
+			if($versionlokal != false){
+				$retval['versionlokal'] = '<p style="color:green;">'.$versionlokal.'</p>';
+			}else{
+				$retval['versionlokal'] = '<p style="color:red;">ERR VERSION</p>';
+			}
 			
 			if($updatetime != false){
 				$retval['updatetime'] = '<p style="color:green;">'.$updatetime.'</p>';
@@ -319,6 +390,9 @@
 				$retval['valid'] = '<p style="color:green;">VALID</p>';
 			}else{
 				$retval['valid'] = '<p style="color:red;">SIPP WEB Bermasalah<br/>';
+				if($this->isSuspended($content)){
+					$retval['valid'] .= 'Hosting Suspended<br/>';
+				}
 				if($this->isHacked($content)){
 					$retval['valid'] .= 'SIPP HACKED !!<br/>';
 				}
@@ -336,6 +410,9 @@
 				}
 				if($setup == false){
 					$retval['valid'] .= 'ERR Setup';
+				}
+				if(!$versionlokal && !$version){
+					$retval['valid'] .= 'Belum Update 5.1.0<br/>';
 				}
 				$retval['valid'] .= '</p>';
 			}
